@@ -6,6 +6,8 @@
 #
 anyio==4.3.0
     # via httpx
+asttokens==2.4.1
+    # via stack-data
 attrs==23.2.0
     # via
     #   outcome
@@ -16,8 +18,20 @@ certifi==2024.2.2
     # via
     #   httpcore
     #   httpx
+cfgv==3.4.0
+    # via pre-commit
 click==8.1.7
     # via pip-tools
+decorator==5.1.1
+    # via
+    #   ipdb
+    #   ipython
+distlib==0.3.8
+    # via virtualenv
+executing==2.0.1
+    # via stack-data
+filelock==3.13.3
+    # via virtualenv
 h11==0.14.0
     # via httpcore
 h2==4.1.0
@@ -30,27 +44,57 @@ httpx[http2]==0.27.0
     # via salt-extensions-metadata (pyproject.toml)
 hyperframe==6.0.1
     # via h2
+identify==2.5.35
+    # via pre-commit
 idna==3.6
     # via
     #   anyio
     #   httpx
     #   trio
-lxml==5.2.1
+ipdb==0.13.13
     # via salt-extensions-metadata (pyproject.toml)
+ipython==8.23.0
+    # via ipdb
+jedi==0.19.1
+    # via ipython
+matplotlib-inline==0.1.6
+    # via ipython
 msgpack==1.0.8
     # via salt-extensions-metadata (pyproject.toml)
+nodeenv==1.8.0
+    # via pre-commit
 outcome==1.3.0.post0
     # via trio
 packaging==24.0
     # via build
+parso==0.8.4
+    # via jedi
+pexpect==4.9.0
+    # via ipython
 pip-tools==7.4.1
     # via salt-extensions-metadata (pyproject.toml)
+platformdirs==4.2.0
+    # via virtualenv
+pre-commit==3.7.0
+    # via salt-extensions-metadata (pyproject.toml)
+prompt-toolkit==3.0.43
+    # via ipython
+ptyprocess==0.7.0
+    # via pexpect
+pure-eval==0.2.2
+    # via stack-data
+pygments==2.17.2
+    # via ipython
 pyproject-hooks==1.0.0
     # via
     #   build
     #   pip-tools
 pyyaml==6.0.1
-    # via salt-extensions-metadata (pyproject.toml)
+    # via
+    #   pre-commit
+    #   salt-extensions-metadata (pyproject.toml)
+six==1.16.0
+    # via asttokens
 sniffio==1.3.1
     # via
     #   anyio
@@ -58,10 +102,20 @@ sniffio==1.3.1
     #   trio
 sortedcontainers==2.4.0
     # via trio
+stack-data==0.6.3
+    # via ipython
 tqdm==4.66.2
     # via salt-extensions-metadata (pyproject.toml)
+traitlets==5.14.2
+    # via
+    #   ipython
+    #   matplotlib-inline
 trio==0.25.0
     # via salt-extensions-metadata (pyproject.toml)
+virtualenv==20.25.1
+    # via pre-commit
+wcwidth==0.2.13
+    # via prompt-toolkit
 wheel==0.43.0
     # via pip-tools
 

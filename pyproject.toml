@@ -21,7 +21,6 @@ classifiers = [
 
 dependencies = [
     "httpx[http2]",
-    "lxml",
     "msgpack",
     "pyyaml",
     "tqdm",
@@ -31,7 +30,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pip-tools",
-    # "pre-commit==3.4.0",
+    "ipdb",
+    "pre-commit",
 ]
 
 [tool.setuptools.packages.find]

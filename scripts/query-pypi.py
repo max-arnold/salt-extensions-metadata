@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 import argparse
 import functools
+import json
 import os
 import pathlib
 import pprint
+import shutil
 import subprocess
 import sys
 import tempfile
 import traceback
 from contextlib import contextmanager
-import shutil
 
 import httpx
 import msgpack
 import trio
 import yaml
-from lxml import html
 from tqdm import tqdm
 
 HEADERS = {"user-agent": "https://github.com/salt-extensions/salt-extensions-metadata"}
@@ -76,20 +76,20 @@ def get_index_info(progress, options):
         )
         if ret.returncode != 0:
             progress.write(
-                f"Failed to get the sha256sum of {__file__}. Invalidating the packages ETAG cache."
+                f"Failed to get the sha256sum of {__file__}. Invalidating the packages serial cache."
             )
             for data in index_info["packages"].values():
-                data.pop("etag", None)
+                data.pop("serial", None)
         else:
             sha256sum = ret.stdout.split()[0].strip()
             stored_sha256sum = index_info.get("sha256sum")
             if sha256sum != stored_sha256sum:
                 progress.write(
                     f"This script's sha256sum({sha256sum}) does not match {stored_sha256sum}. "
-                    "Invalidating the packages ETAG cache."
+                    "Invalidating the packages serial cache."
                 )
                 for data in index_info["packages"].values():
-                    data.pop("etag", None)
+                    data.pop("serial", None)
     else:
         index_info = {"packages": {}}
 
@@ -119,7 +119,7 @@ def get_index_info(progress, options):
 async def download_pypi_simple_index(session, index_info, limiter, progress, options):
     try:
         async with limiter:
-            headers = {}
+            headers = {"Accept": "application/vnd.pypi.simple.v1+json"}
             etag = index_info.get("etag")
             if etag:
                 headers["If-None-Match"] = etag
@@ -161,17 +161,20 @@ async def download_pypi_simple_index(session, index_info, limiter, progress, opt
 
                 set_progress_description(progress, "Querying packages from PyPi completed")
 
-                set_progress_description(progress, "Parsing HTML for packages")
-                tree = html.fromstring(pathlib.Path(download_file.name).read_text())
+                set_progress_description(progress, "Parsing JSON for packages")
+
+                data = json.loads(pathlib.Path(download_file.name).read_text())
                 old_packages = set(index_info["packages"])
                 new_packages = set()
                 package_list = index_info["packages"]
-                for package in tree.xpath("//a/text()"):
-                    if package in old_packages:
-                        old_packages.remove(package)
-                    if package not in package_list:
-                        new_packages.add(package)
-                        package_list[package] = {}
+                for package in data["projects"]:
+                    if package["name"] in old_packages:
+                        old_packages.remove(package["name"])
+                        if package_list[package["name"]].get('serial') != package["_last-serial"]:
+                            package_list[package["name"]].update({"serial": package["_last-serial"], "refresh": True})
+                    if package["name"] not in package_list:
+                        new_packages.add(package["name"])
+                        package_list[package["name"]] = {"serial": package["_last-serial"], "refresh": True}
                 if old_packages:
                     progress.write(
                         f"Removing the following old packages from "
@@ -190,7 +193,7 @@ async def download_pypi_simple_index(session, index_info, limiter, progress, opt
                     progress.write("New packages:")
                     for package in new_packages:
                         progress.write(f" * {package}")
-                set_progress_description(progress, "Parsing HTML for packages complete")
+                set_progress_description(progress, "Parsing JSON for packages complete")
     finally:
         progress.update()
 
@@ -198,7 +201,11 @@ async def download_pypi_simple_index(session, index_info, limiter, progress, opt
 async def collect_packages_information(session, index_info, limiter, progress, options):
     try:
         async with trio.open_nursery() as nursery:
+            refreshed = 0
             for package in index_info["packages"]:
+                if not index_info["packages"][package].get("refresh", None):
+                    progress.update()
+                    continue
                 if options.fast and (
                     package in KNOWN_NOT_SALT_EXTENSIONS
                     or not (
@@ -206,6 +213,7 @@ async def collect_packages_information(session, index_info, limiter, progress, o
                         or package.startswith(PACKAGE_NAME_PREFIXES)
                     )
                 ):
+                    progress.update()
                     continue
                 async with limiter:
                     nursery.start_soon(
@@ -217,6 +225,10 @@ async def collect_packages_information(session, index_info, limiter, progress, o
                         progress,
                         options,
                     )
+                index_info["packages"][package].pop("refresh", None)
+                refreshed += 1
+                if options.batch and refreshed > options.batch:
+                    break
     finally:
         # Store the known extensions hash into state to trigger a cache hit/miss/update
         # on the Github Actions CI pipeline
@@ -248,9 +260,6 @@ async def download_package_info(session, package, package_info, limiter, progres
             return
         url = f"https://pypi.org/pypi/{package}/json"
         headers = {}
-        etag = package_info.get("etag")
-        if etag:
-            headers["If-None-Match"] = etag
 
         set_progress_description(progress, f"Querying info for {package}")
         try:
@@ -258,7 +267,7 @@ async def download_package_info(session, package, package_info, limiter, progres
         except (httpx.TimeoutException, trio.ClosedResourceError) as exc:
             progress.write(f"Failed to query info for {package}: {exc}")
             return
-        package_info["etag"] = req.headers.get("etag")
+
         if req.status_code == 304:
             set_progress_description(progress, f"No changes for {package}")
             # The package information has not changed:
@@ -341,6 +350,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Query PyPI for Salt Extensions")
     parser.add_argument(
         "--fast", action="store_true", default=False, help="Fast mode (only match package names)"
+    )
+    parser.add_argument(
+        "--batch", default=0, type=int, help="Batch size"
     )
     parser.add_argument(
         "--no-progress",
