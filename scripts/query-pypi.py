@@ -21,9 +21,7 @@ from tqdm import tqdm
 HEADERS = {"user-agent": "https://github.com/salt-extensions/salt-extensions-metadata"}
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
-LOCAL_CACHE_PATH = pathlib.Path(
-    os.environ.get("LOCAL_CACHE_PATH") or REPO_ROOT.joinpath(".cache")
-)
+LOCAL_CACHE_PATH = pathlib.Path(os.environ.get("LOCAL_CACHE_PATH") or REPO_ROOT.joinpath(".cache"))
 if not LOCAL_CACHE_PATH.is_dir():
     LOCAL_CACHE_PATH.mkdir(0o755)
 PACKAGE_INFO_CACHE = LOCAL_CACHE_PATH / "packages-info"
@@ -54,10 +52,10 @@ def set_progress_description(progress, message):
 
 
 def get_sha256_command():
-    sha256 = shutil.which('sha256sum')
+    sha256 = shutil.which("sha256sum")
     if sha256:
         return [sha256]
-    sha256 = shutil.which('shasum')
+    sha256 = shutil.which("shasum")
     if sha256:
         return [sha256, "-a", "256"]
     raise Exception("SHA256 command not found")
@@ -131,7 +129,6 @@ async def download_pypi_simple_index(session, index_info, limiter, progress, opt
                 async with session.stream(
                     "GET", "https://pypi.org/simple/", headers=headers
                 ) as response:
-
                     if response.status_code == 304:
                         # There are no new packages
                         progress.write("There are no new packages")
@@ -155,20 +152,14 @@ async def download_pypi_simple_index(session, index_info, limiter, progress, opt
                         num_bytes_downloaded = response.num_bytes_downloaded
                         async for chunk in response.aiter_bytes():
                             download_file.write(chunk)
-                            dprogress.update(
-                                response.num_bytes_downloaded - num_bytes_downloaded
-                            )
+                            dprogress.update(response.num_bytes_downloaded - num_bytes_downloaded)
                             num_bytes_downloaded = response.num_bytes_downloaded
-                        dprogress.set_description(
-                            "Downloading PyPi simple index complete."
-                        )
+                        dprogress.set_description("Downloading PyPi simple index complete.")
 
                 index_info["etag"] = response.headers.get("etag")
                 STATE_DIR.joinpath("pypi-index-etag").write_text(index_info["etag"])
 
-                set_progress_description(
-                    progress, "Querying packages from PyPi completed"
-                )
+                set_progress_description(progress, "Querying packages from PyPi completed")
 
                 set_progress_description(progress, "Parsing HTML for packages")
                 tree = html.fromstring(pathlib.Path(download_file.name).read_text())
@@ -208,7 +199,13 @@ async def collect_packages_information(session, index_info, limiter, progress, o
     try:
         async with trio.open_nursery() as nursery:
             for package in index_info["packages"]:
-                if (options.fast and (package in KNOWN_NOT_SALT_EXTENSIONS or not (package in KNOWN_SALT_EXTENSIONS or package.startswith(PACKAGE_NAME_PREFIXES)))):
+                if options.fast and (
+                    package in KNOWN_NOT_SALT_EXTENSIONS
+                    or not (
+                        package in KNOWN_SALT_EXTENSIONS
+                        or package.startswith(PACKAGE_NAME_PREFIXES)
+                    )
+                ):
                     continue
                 async with limiter:
                     nursery.start_soon(
@@ -232,10 +229,7 @@ async def collect_packages_information(session, index_info, limiter, progress, o
         try:
             extensions_hash = functools.reduce(
                 lambda x, y: x ^ y,
-                [
-                    hash((key, repr(value)))
-                    for (key, value) in sorted(extensions.items())
-                ],
+                [hash((key, repr(value))) for (key, value) in sorted(extensions.items())],
             )
             STATE_DIR.joinpath("known-extensions-hash").write_text(f"{extensions_hash}")
         except TypeError as exc:
@@ -272,18 +266,14 @@ async def download_package_info(session, package, package_info, limiter, progres
         if req.status_code != 200:
             if req.status_code == 404:
                 package_info["not-found"] = True
-            progress.write(
-                f"Failed to query info for {package}. Status code: {req.status_code}"
-            )
+            progress.write(f"Failed to query info for {package}. Status code: {req.status_code}")
             if package_info_cache.exists():
                 package_info_cache.unlink()
             return
 
         data = req.json()
         if not data:
-            progress.write(
-                "Failed to get JSON data back. Got:\n>>>>>>\n{req.text}\n<<<<<<"
-            )
+            progress.write("Failed to get JSON data back. Got:\n>>>>>>\n{req.text}\n<<<<<<")
             if package_info_cache.exists():
                 package_info_cache.unlink()
             return
@@ -295,13 +285,8 @@ async def download_package_info(session, package, package_info, limiter, progres
             elif package not in KNOWN_NOT_SALT_EXTENSIONS:
                 if package.startswith(PACKAGE_NAME_PREFIXES):
                     salt_extension = True
-                    progress.write(
-                        f"{package} was detected as a salt-extension from it's name"
-                    )
-                elif (
-                    data["info"]["keywords"]
-                    and "salt-extension" in data["info"]["keywords"]
-                ):
+                    progress.write(f"{package} was detected as a salt-extension from it's name")
+                elif data["info"]["keywords"] and "salt-extension" in data["info"]["keywords"]:
                     salt_extension = True
                     progress.write(
                         f"{package} was detected as a salt-extension because of it's keywords"
@@ -332,12 +317,8 @@ async def main(options):
             concurrency = 1500
             limiter = trio.CapacityLimiter(concurrency)
             with trio.move_on_after(timeout) as cancel_scope:
-                limits = httpx.Limits(
-                    max_keepalive_connections=5, max_connections=concurrency
-                )
-                async with httpx.AsyncClient(
-                    limits=limits, http2=True, headers=HEADERS
-                ) as session:
+                limits = httpx.Limits(max_keepalive_connections=5, max_connections=concurrency)
+                async with httpx.AsyncClient(limits=limits, http2=True, headers=HEADERS) as session:
                     await download_pypi_simple_index(
                         session, index_info, limiter, progress, options
                     )
@@ -362,7 +343,10 @@ if __name__ == "__main__":
         "--fast", action="store_true", default=False, help="Fast mode (only match package names)"
     )
     parser.add_argument(
-        "--no-progress", action="store_true", default="CI" in os.environ, help="Disable progress bar"
+        "--no-progress",
+        action="store_true",
+        default="CI" in os.environ,
+        help="Disable progress bar",
     )
     options = parser.parse_args()
     sys.exit(trio.run(main, options))
