@@ -1,0 +1,46 @@
+[project]
+name = "salt-extensions-metadata"
+version = "0.0.1"
+description = "Salt Extensions Metadata"
+readme = "README.md"
+requires-python = ">=3.12"
+license.file = "LICENSE"
+authors = [
+  {name = "Max Arnold", email = "arnold.maxim@gmail.com" },
+  {name = "Pedro Algarvio", email = "pedro@algarvio.me" }
+]
+classifiers = [
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+]
+
+dependencies = [
+    "httpx[http2]",
+    "lxml",
+    "msgpack",
+    "pyyaml",
+    "tqdm",
+    "trio",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pip-tools",
+    # "pre-commit==3.4.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["scripts"]
+
+# [project.urls]
+# "Homepage" = ""
+# "Bug Reports" = ""
+# "Source" = ""
+
+[tool.ruff]
+line-length = 100

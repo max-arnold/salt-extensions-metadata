@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import functools
 import os
 import pathlib
@@ -8,15 +9,16 @@ import sys
 import tempfile
 import traceback
 from contextlib import contextmanager
+import shutil
 
 import httpx
 import msgpack
 import trio
+import yaml
 from lxml import html
 from tqdm import tqdm
 
-DISABLE_TQDM = "CI" in os.environ
-HEADERS = {"user-agent": "https://github.com/salt-extensions/salt-extensions-index"}
+HEADERS = {"user-agent": "https://github.com/salt-extensions/salt-extensions-metadata"}
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 LOCAL_CACHE_PATH = pathlib.Path(
@@ -28,19 +30,18 @@ PACKAGE_INFO_CACHE = LOCAL_CACHE_PATH / "packages-info"
 if not PACKAGE_INFO_CACHE.is_dir():
     PACKAGE_INFO_CACHE.mkdir(0o755)
 STATE_DIR = REPO_ROOT / ".state"
+if not STATE_DIR.is_dir():
+    STATE_DIR.mkdir(0o755)
+DATA_DIR = REPO_ROOT / "data"
+METADATA_DIR = REPO_ROOT / "metadata"
 
-KNOWN_SALT_EXTENSIONS = {
-    "salt-cumulus",
-    "salt-nornir",
-    "salt-os10",
-    "salt-ttp",
-}
-KNOWN_NOT_SALT_EXTENSIONS = {
-    "salt-extension",
-    "salt-ext-tidx1",
-    "salt-tidx2-extension",
-}
+PACKAGE_NAME_PREFIXES = ("salt-ext-", "saltext-", "saltext.")
 
+with open(DATA_DIR / "include-pypi-packages.yaml", "r") as fp:
+    KNOWN_SALT_EXTENSIONS = set(yaml.safe_load(fp))
+
+with open(DATA_DIR / "exclude-pypi-packages.yaml", "r") as fp:
+    KNOWN_NOT_SALT_EXTENSIONS = set(yaml.safe_load(fp))
 
 print(f"Local Cache Path: {LOCAL_CACHE_PATH}", file=sys.stderr, flush=True)
 
@@ -52,14 +53,24 @@ def set_progress_description(progress, message):
     progress.set_description(f"{message: <60}")
 
 
+def get_sha256_command():
+    sha256 = shutil.which('sha256sum')
+    if sha256:
+        return [sha256]
+    sha256 = shutil.which('shasum')
+    if sha256:
+        return [sha256, "-a", "256"]
+    raise Exception("SHA256 command not found")
+
+
 @contextmanager
-def get_index_info(progress):
+def get_index_info(progress, options):
     local_pypi_index_info = LOCAL_CACHE_PATH / "pypi-index.msgpack"
     set_progress_description(progress, "Loading cache")
     if local_pypi_index_info.exists():
         index_info = msgpack.unpackb(local_pypi_index_info.read_bytes())
         ret = subprocess.run(
-            ["sha256sum", __file__],
+            get_sha256_command() + [__file__],
             check=False,
             shell=False,
             stdout=subprocess.PIPE,
@@ -90,7 +101,7 @@ def get_index_info(progress):
     finally:
         set_progress_description(progress, "Saving cache")
         ret = subprocess.run(
-            ["sha256sum", __file__],
+            get_sha256_command() + [__file__],
             check=False,
             shell=False,
             stdout=subprocess.PIPE,
@@ -107,7 +118,7 @@ def get_index_info(progress):
         progress.update()
 
 
-async def download_pypi_simple_index(session, index_info, limiter, progress):
+async def download_pypi_simple_index(session, index_info, limiter, progress, options):
     try:
         async with limiter:
             headers = {}
@@ -138,7 +149,7 @@ async def download_pypi_simple_index(session, index_info, limiter, progress):
                         unit_scale=True,
                         unit_divisor=1024,
                         unit="B",
-                        disable=DISABLE_TQDM,
+                        disable=options.no_progress,
                     ) as dprogress:
                         dprogress.set_description("Downloading PyPi simple index")
                         num_bytes_downloaded = response.num_bytes_downloaded
@@ -193,10 +204,12 @@ async def download_pypi_simple_index(session, index_info, limiter, progress):
         progress.update()
 
 
-async def collect_packages_information(session, index_info, limiter, progress):
+async def collect_packages_information(session, index_info, limiter, progress, options):
     try:
         async with trio.open_nursery() as nursery:
             for package in index_info["packages"]:
+                if (options.fast and (package in KNOWN_NOT_SALT_EXTENSIONS or not (package in KNOWN_SALT_EXTENSIONS or package.startswith(PACKAGE_NAME_PREFIXES)))):
+                    continue
                 async with limiter:
                     nursery.start_soon(
                         download_package_info,
@@ -205,6 +218,7 @@ async def collect_packages_information(session, index_info, limiter, progress):
                         index_info["packages"][package],
                         limiter,
                         progress,
+                        options,
                     )
     finally:
         # Store the known extensions hash into state to trigger a cache hit/miss/update
@@ -228,12 +242,12 @@ async def collect_packages_information(session, index_info, limiter, progress):
             progress.write(f"Failed to generate the known extensions hash: {exc}")
 
 
-async def download_package_info(session, package, package_info, limiter, progress):
+async def download_package_info(session, package, package_info, limiter, progress, options):
     try:
         package_info_cache = PACKAGE_INFO_CACHE / f"{package}.msgpack"
         if package_info.get("not-found"):
             message = f"Skipping {package} know to throw 404"
-            if not DISABLE_TQDM:
+            if not options.no_progress:
                 set_progress_description(progress, message)
             if package_info_cache.exists():
                 package_info_cache.unlink()
@@ -279,7 +293,7 @@ async def download_package_info(session, package, package_info, limiter, progres
                 salt_extension = True
                 progress.write(f"{package} is a known salt-extension")
             elif package not in KNOWN_NOT_SALT_EXTENSIONS:
-                if package.startswith(("salt-ext-", "saltext-", "saltext.")):
+                if package.startswith(PACKAGE_NAME_PREFIXES):
                     salt_extension = True
                     progress.write(
                         f"{package} was detected as a salt-extension from it's name"
@@ -304,17 +318,17 @@ async def download_package_info(session, package, package_info, limiter, progres
         progress.update()
 
 
-async def main():
+async def main(options):
     timeout = 240 * 60  # move on after 4 hours
     progress = tqdm(
         total=sys.maxsize,
         unit="pkg",
         unit_scale=True,
         desc=f"{' ' * 60} :",
-        disable=DISABLE_TQDM,
+        disable=options.no_progress,
     )
     with progress:
-        with get_index_info(progress) as index_info:
+        with get_index_info(progress, options) as index_info:
             concurrency = 1500
             limiter = trio.CapacityLimiter(concurrency)
             with trio.move_on_after(timeout) as cancel_scope:
@@ -325,16 +339,16 @@ async def main():
                     limits=limits, http2=True, headers=HEADERS
                 ) as session:
                     await download_pypi_simple_index(
-                        session, index_info, limiter, progress
+                        session, index_info, limiter, progress, options
                     )
-                    if DISABLE_TQDM is False:
+                    if not options.no_progress:
                         # We can't reset tqdm if it's disabled
                         progress.reset(total=len(index_info["packages"]))
                     await collect_packages_information(
-                        session, index_info, limiter, progress
+                        session, index_info, limiter, progress, options
                     )
         if cancel_scope.cancelled_caught:
-            progress.write(f"The script timmed out after {timeout} minutes")
+            progress.write(f"The script timed out after {timeout} minutes")
             return 1
         progress.write("Detected Salt Extensions:")
         for path in sorted(PACKAGE_INFO_CACHE.glob("*.msgpack")):
@@ -343,4 +357,12 @@ async def main():
 
 
 if __name__ == "__main__":
-    sys.exit(trio.run(main))
+    parser = argparse.ArgumentParser(description="Query PyPI for Salt Extensions")
+    parser.add_argument(
+        "--fast", action="store_true", default=False, help="Fast mode (only match package names)"
+    )
+    parser.add_argument(
+        "--no-progress", action="store_true", default="CI" in os.environ, help="Disable progress bar"
+    )
+    options = parser.parse_args()
+    sys.exit(trio.run(main, options))
