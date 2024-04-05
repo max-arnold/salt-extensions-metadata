@@ -170,11 +170,16 @@ async def download_pypi_simple_index(session, index_info, limiter, progress, opt
                 for package in data["projects"]:
                     if package["name"] in old_packages:
                         old_packages.remove(package["name"])
-                        if package_list[package["name"]].get('serial') != package["_last-serial"]:
-                            package_list[package["name"]].update({"serial": package["_last-serial"], "refresh": True})
+                        if package_list[package["name"]].get("serial") != package["_last-serial"]:
+                            package_list[package["name"]].update(
+                                {"serial": package["_last-serial"], "refresh": True}
+                            )
                     if package["name"] not in package_list:
                         new_packages.add(package["name"])
-                        package_list[package["name"]] = {"serial": package["_last-serial"], "refresh": True}
+                        package_list[package["name"]] = {
+                            "serial": package["_last-serial"],
+                            "refresh": True,
+                        }
                 if old_packages:
                     progress.write(
                         f"Removing the following old packages from "
@@ -351,9 +356,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--fast", action="store_true", default=False, help="Fast mode (only match package names)"
     )
-    parser.add_argument(
-        "--batch", default=0, type=int, help="Batch size"
-    )
+    parser.add_argument("--batch", default=0, type=int, help="Batch size")
     parser.add_argument(
         "--no-progress",
         action="store_true",
