@@ -14,7 +14,7 @@ repos:
       - id: check-ast             # Simply check whether files parse as valid python.
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.3.5
+    rev: v0.4.1
     hooks:
       - id: ruff
         args: [ --fix ]
