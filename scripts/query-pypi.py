@@ -18,8 +18,9 @@ import trio
 import yaml
 from tqdm import tqdm
 
-HEADERS = {"user-agent": "https://github.com/salt-extensions/salt-extensions-metadata"}
-
+HEADERS = {"user-agent": "https://github.com/max-arnold/salt-extensions-metadata"}
+# ACCEPT_JSON_LATEST = "application/vnd.pypi.simple.latest+json"
+ACCEPT_JSON_V1 = "application/vnd.pypi.simple.v1+json"
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 LOCAL_CACHE_PATH = pathlib.Path(os.environ.get("LOCAL_CACHE_PATH") or REPO_ROOT.joinpath(".cache"))
 if not LOCAL_CACHE_PATH.is_dir():
@@ -119,7 +120,7 @@ def get_index_info(progress, options):
 async def download_pypi_simple_index(session, index_info, limiter, progress, options):
     try:
         async with limiter:
-            headers = {"Accept": "application/vnd.pypi.simple.v1+json"}
+            headers = {"Accept": ACCEPT_JSON_V1}
             etag = index_info.get("etag")
             if etag:
                 headers["If-None-Match"] = etag
@@ -290,6 +291,11 @@ async def download_package_info(session, package, package_info, limiter, progres
             progress.write("Failed to get JSON data back. Got:\n>>>>>>\n{req.text}\n<<<<<<")
             if package_info_cache.exists():
                 package_info_cache.unlink()
+            return
+        if data["info"].get("yanked"):
+            progress.write(
+                f"Package {package} has been yanked. Reason: {data['info'].get('yanked_reason')}"
+            )
             return
         try:
             salt_extension = False
