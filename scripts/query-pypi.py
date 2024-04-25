@@ -25,7 +25,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 LOCAL_CACHE_PATH = pathlib.Path(os.environ.get("LOCAL_CACHE_PATH") or REPO_ROOT.joinpath(".cache"))
 if not LOCAL_CACHE_PATH.is_dir():
     LOCAL_CACHE_PATH.mkdir(0o755)
-PACKAGE_INFO_CACHE = LOCAL_CACHE_PATH / "packages-info"
+PACKAGE_INFO_CACHE = LOCAL_CACHE_PATH / "pypi-packages-info"
 if not PACKAGE_INFO_CACHE.is_dir():
     PACKAGE_INFO_CACHE.mkdir(0o755)
 STATE_DIR = REPO_ROOT / ".state"
@@ -36,10 +36,10 @@ METADATA_DIR = REPO_ROOT / "metadata"
 
 PACKAGE_NAME_PREFIXES = ("salt-ext-", "saltext-", "saltext.")
 
-with open(DATA_DIR / "include-pypi-packages.yaml", "r") as fp:
+with open(DATA_DIR / "pypi-packages-include.yaml", "r") as fp:
     KNOWN_SALT_EXTENSIONS = set(yaml.safe_load(fp))
 
-with open(DATA_DIR / "exclude-pypi-packages.yaml", "r") as fp:
+with open(DATA_DIR / "pypi-packages-exclude.yaml", "r") as fp:
     KNOWN_NOT_SALT_EXTENSIONS = set(yaml.safe_load(fp))
 
 print(f"Local Cache Path: {LOCAL_CACHE_PATH}", file=sys.stderr, flush=True)
