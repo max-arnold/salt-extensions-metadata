@@ -61,4 +61,10 @@ stars: NNN
 Scripts:
 
 - `query-pypi.py` (mostly based on [this one](https://github.com/saltstack/salt-extensions-index/blob/main/scripts/query-pypi.py) by Pedro Algarvio) to discover new extensions on PyPI
-- `metadata.py` (TBD) to update the metadata
+- `refresh-metadata.py` (TBD) to update the metadata
+
+Search notes:
+
+* `(saltext OR salt-ext OR salt-extension) (path:**/pyproject.toml OR path:**/setup.py OR path:**/setup.cfg)` - Github
+* `curl https://api.github.com/users/salt-extensions/repos | jq '.[].name'` - Github
+* `(filename:pyproject.toml | filename:setup.cfg | filename:setup.py) + (saltext |  salt-ext | salt-extension)` - doesn't work on Gitlab
