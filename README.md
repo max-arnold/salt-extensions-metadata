@@ -68,3 +68,12 @@ Search notes:
 * `(saltext OR salt-ext OR salt-extension) (path:**/pyproject.toml OR path:**/setup.py OR path:**/setup.cfg)` - Github
 * `curl https://api.github.com/users/salt-extensions/repos | jq '.[].name'` - Github
 * `(filename:pyproject.toml | filename:setup.cfg | filename:setup.py) + (saltext |  salt-ext | salt-extension)` - doesn't work on Gitlab
+* https://pypi.org/project/pkginfo/
+
+Github CI security notes:
+
+* https://securitylab.github.com/research/github-actions-preventing-pwn-requests/
+* https://securitylab.github.com/research/github-actions-untrusted-input/
+* https://securitylab.github.com/research/github-actions-building-blocks/
+* https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions
+* https://medium.com/@erez.dasa/github-actions-hardening-guide-faae031aee20
