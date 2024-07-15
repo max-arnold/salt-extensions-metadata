@@ -68,29 +68,30 @@ def get_index_info(progress, options):
     set_progress_description(progress, "Loading cache")
     if local_pypi_index_info.exists():
         index_info = msgpack.unpackb(local_pypi_index_info.read_bytes())
-        ret = subprocess.run(
-            get_sha256_command() + [__file__],
-            check=False,
-            shell=False,
-            stdout=subprocess.PIPE,
-            universal_newlines=True,
-        )
-        if ret.returncode != 0:
-            progress.write(
-                f"Failed to get the sha256sum of {__file__}. Invalidating the packages serial cache."
+        if not options.no_script_checksum:
+            ret = subprocess.run(
+                get_sha256_command() + [__file__],
+                check=False,
+                shell=False,
+                stdout=subprocess.PIPE,
+                universal_newlines=True,
             )
-            for data in index_info["packages"].values():
-                data.pop("serial", None)
-        else:
-            sha256sum = ret.stdout.split()[0].strip()
-            stored_sha256sum = index_info.get("sha256sum")
-            if sha256sum != stored_sha256sum:
+            if ret.returncode != 0:
                 progress.write(
-                    f"This script's sha256sum({sha256sum}) does not match {stored_sha256sum}. "
-                    "Invalidating the packages serial cache."
+                    f"Failed to get the sha256sum of {__file__}. Invalidating the packages serial cache."
                 )
                 for data in index_info["packages"].values():
                     data.pop("serial", None)
+            else:
+                sha256sum = ret.stdout.split()[0].strip()
+                stored_sha256sum = index_info.get("sha256sum")
+                if sha256sum != stored_sha256sum:
+                    progress.write(
+                        f"This script's sha256sum({sha256sum}) does not match {stored_sha256sum}. "
+                        "Invalidating the packages serial cache."
+                    )
+                    for data in index_info["packages"].values():
+                        data.pop("serial", None)
     else:
         index_info = {"packages": {}}
 
@@ -219,6 +220,7 @@ async def collect_packages_information(session, index_info, limiter, progress, o
                         or package.startswith(PACKAGE_NAME_PREFIXES)
                     )
                 ):
+                    index_info["packages"][package].pop("refresh", None)
                     progress.update()
                     continue
                 async with limiter:
@@ -258,7 +260,7 @@ async def download_package_info(session, package, package_info, limiter, progres
     try:
         package_info_cache = PACKAGE_INFO_CACHE / f"{package}.msgpack"
         if package_info.get("not-found"):
-            message = f"Skipping {package} know to throw 404"
+            message = f"Skipping {package} known to throw 404"
             if not options.no_progress:
                 set_progress_description(progress, message)
             if package_info_cache.exists():
@@ -363,6 +365,11 @@ if __name__ == "__main__":
         "--fast", action="store_true", default=False, help="Fast mode (only match package names)"
     )
     parser.add_argument("--batch", default=0, type=int, help="Batch size")
+    parser.add_argument(
+        "--no-script-checksum",
+        action="store_true",
+        help="Disable script checksum",
+    )
     parser.add_argument(
         "--no-progress",
         action="store_true",
