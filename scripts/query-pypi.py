@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import argparse
-import functools
+import hashlib
 import json
 import os
 import pathlib
@@ -176,6 +176,7 @@ async def download_pypi_simple_index(session, index_info, limiter, progress, opt
                             package_list[package["name"]].update(
                                 {"serial": package["_last-serial"], "refresh": True}
                             )
+                            package_list[package["name"]].pop("not-found", None)
                     if package["name"] not in package_list:
                         new_packages.add(package["name"])
                         package_list[package["name"]] = {
@@ -246,21 +247,16 @@ async def collect_packages_information(session, index_info, limiter, progress, o
                 PACKAGE_INFO_CACHE.joinpath(f"{path.stem}.msgpack").read_bytes()
             )
             extensions[path.stem] = extension_data
-        try:
-            extensions_hash = functools.reduce(
-                lambda x, y: x ^ y,
-                [hash((key, repr(value))) for (key, value) in sorted(extensions.items())],
-            )
-            STATE_DIR.joinpath("known-extensions-hash").write_text(f"{extensions_hash}")
-        except TypeError as exc:
-            progress.write(f"Failed to generate the known extensions hash: {exc}")
+        serialized_extensions = json.dumps(extensions, sort_keys=True, separators=(",", ":"))
+        extensions_hash = hashlib.sha256(serialized_extensions.encode()).hexdigest()
+        STATE_DIR.joinpath("known-extensions-hash").write_text(extensions_hash)
 
 
 async def download_package_info(session, package, package_info, limiter, progress, options):
     try:
         package_info_cache = PACKAGE_INFO_CACHE / f"{package}.msgpack"
         if package_info.get("not-found"):
-            message = f"Skipping {package} known to throw 404"
+            message = f"Skipping {package} known to throw 404 for serial {package_info['serial']}"
             if not options.no_progress:
                 set_progress_description(progress, message)
             if package_info_cache.exists():
