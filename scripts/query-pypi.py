@@ -138,7 +138,7 @@ async def download_pypi_simple_index(session, index_info, limiter, progress, opt
 
                     if response.status_code != 200:
                         progress.write(
-                            "Failed to download the PyPi index. Status Code: {request.status_code}"
+                            f"Failed to download the PyPi index. Status Code: {response.status_code}"
                         )
                         return
                     total = int(response.headers["Content-Length"])
@@ -290,7 +290,7 @@ async def download_package_info(session, package, package_info, limiter, progres
 
         data = req.json()
         if not data:
-            progress.write("Failed to get JSON data back. Got:\n>>>>>>\n{req.text}\n<<<<<<")
+            progress.write(f"Failed to get JSON data back. Got:\n>>>>>>\n{req.text}\n<<<<<<")
             if package_info_cache.exists():
                 package_info_cache.unlink()
             return
