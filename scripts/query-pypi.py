@@ -82,6 +82,7 @@ def get_index_info(progress, options):
                 )
                 for data in index_info["packages"].values():
                     data.pop("serial", None)
+                    data.pop("not-found", None)
                     data["refresh"] = True
             else:
                 sha256sum = ret.stdout.split()[0].strip()
@@ -93,6 +94,7 @@ def get_index_info(progress, options):
                     )
                     for data in index_info["packages"].values():
                         data.pop("serial", None)
+                        data.pop("not-found", None)
                         data["refresh"] = True
     else:
         index_info = {"packages": {}}
@@ -167,6 +169,7 @@ async def download_pypi_simple_index(session, index_info, limiter, progress, opt
 
                 set_progress_description(progress, "Parsing JSON for packages")
 
+                download_file.flush()
                 data = json.loads(pathlib.Path(download_file.name).read_text())
                 old_packages = set(index_info["packages"])
                 new_packages = set()
@@ -225,16 +228,15 @@ async def collect_packages_information(session, index_info, limiter, progress, o
                     index_info["packages"][package].pop("refresh", None)
                     progress.update()
                     continue
-                async with limiter:
-                    nursery.start_soon(
-                        download_package_info,
-                        session,
-                        package,
-                        index_info["packages"][package],
-                        limiter,
-                        progress,
-                        options,
-                    )
+                nursery.start_soon(
+                    download_package_info,
+                    session,
+                    package,
+                    index_info["packages"][package],
+                    limiter,
+                    progress,
+                    options,
+                )
                 index_info["packages"][package].pop("refresh", None)
                 refreshed += 1
                 if options.batch and refreshed >= options.batch:
@@ -255,71 +257,80 @@ async def collect_packages_information(session, index_info, limiter, progress, o
 
 async def download_package_info(session, package, package_info, limiter, progress, options):
     try:
-        package_info_cache = PACKAGE_INFO_CACHE / f"{package}.msgpack"
-        if package_info.get("not-found"):
-            message = f"Skipping {package} known to throw 404 for serial {package_info['serial']}"
-            if not options.no_progress:
-                set_progress_description(progress, message)
-            if package_info_cache.exists():
-                package_info_cache.unlink()
-            return
-        url = f"https://pypi.org/pypi/{package}/json"
-        headers = {}
-
-        set_progress_description(progress, f"Querying info for {package}")
-        try:
-            req = await session.get(url, headers=headers, timeout=15)
-        except (httpx.HTTPError, trio.ClosedResourceError) as exc:
-            progress.write(f"Failed to query info for {package}: {exc}")
-            return
-
-        if req.status_code == 304:
-            set_progress_description(progress, f"No changes for {package}")
-            # The package information has not changed:
-            return
-        if req.status_code != 200:
-            if req.status_code == 404:
-                package_info["not-found"] = True
-            progress.write(f"Failed to query info for {package}. Status code: {req.status_code}")
-            if package_info_cache.exists():
-                package_info_cache.unlink()
-            return
-
-        data = req.json()
-        if not data:
-            progress.write(f"Failed to get JSON data back. Got:\n>>>>>>\n{req.text}\n<<<<<<")
-            if package_info_cache.exists():
-                package_info_cache.unlink()
-            return
-        if data["info"].get("yanked"):
-            progress.write(
-                f"Package {package} has been yanked. Reason: {data['info'].get('yanked_reason')}"
-            )
-            if package_info_cache.exists():
-                package_info_cache.unlink()
-            return
-        try:
-            salt_extension = False
-            if package in KNOWN_SALT_EXTENSIONS:
-                salt_extension = True
-                progress.write(f"{package} is a known salt-extension")
-            elif package not in KNOWN_NOT_SALT_EXTENSIONS:
-                if package.startswith(PACKAGE_NAME_PREFIXES):
-                    salt_extension = True
-                    progress.write(f"{package} was detected as a salt-extension from it's name")
-                elif data["info"]["keywords"] and "salt-extension" in data["info"]["keywords"]:
-                    salt_extension = True
-                    progress.write(
-                        f"{package} was detected as a salt-extension because of it's keywords"
-                    )
-            if salt_extension:
-                package_info_cache.write_bytes(msgpack.packb(data))
-            else:
+        async with limiter:
+            package_info_cache = PACKAGE_INFO_CACHE / f"{package}.msgpack"
+            if package_info.get("not-found"):
+                message = (
+                    f"Skipping {package} known to throw 404 for serial {package_info['serial']}"
+                )
+                if not options.no_progress:
+                    set_progress_description(progress, message)
                 if package_info_cache.exists():
                     package_info_cache.unlink()
-        except Exception:
-            progress.write(traceback.format_exc())
-            progress.write(f"Data:\n{pprint.pformat(data)}")
+                return
+            url = f"https://pypi.org/pypi/{package}/json"
+            headers = {}
+
+            set_progress_description(progress, f"Querying info for {package}")
+            try:
+                req = await session.get(url, headers=headers, timeout=15)
+            except (httpx.HTTPError, trio.ClosedResourceError) as exc:
+                progress.write(f"Failed to query info for {package}: {exc}")
+                return
+
+            if req.status_code == 304:
+                set_progress_description(progress, f"No changes for {package}")
+                # The package information has not changed:
+                return
+            if req.status_code != 200:
+                if req.status_code == 404:
+                    package_info["not-found"] = True
+                progress.write(
+                    f"Failed to query info for {package}. Status code: {req.status_code}"
+                )
+                if package_info_cache.exists():
+                    package_info_cache.unlink()
+                return
+
+            try:
+                data = req.json()
+            except (json.JSONDecodeError, ValueError) as exc:
+                progress.write(f"Failed to decode JSON for {package}: {exc}")
+                return
+            if not data:
+                progress.write(f"Failed to get JSON data back. Got:\n>>>>>>\n{req.text}\n<<<<<<")
+                if package_info_cache.exists():
+                    package_info_cache.unlink()
+                return
+            if data["info"].get("yanked"):
+                progress.write(
+                    f"Package {package} has been yanked. Reason: {data['info'].get('yanked_reason')}"
+                )
+                if package_info_cache.exists():
+                    package_info_cache.unlink()
+                return
+            try:
+                salt_extension = False
+                if package in KNOWN_SALT_EXTENSIONS:
+                    salt_extension = True
+                    progress.write(f"{package} is a known salt-extension")
+                elif package not in KNOWN_NOT_SALT_EXTENSIONS:
+                    if package.startswith(PACKAGE_NAME_PREFIXES):
+                        salt_extension = True
+                        progress.write(f"{package} was detected as a salt-extension from it's name")
+                    elif data["info"]["keywords"] and "salt-extension" in data["info"]["keywords"]:
+                        salt_extension = True
+                        progress.write(
+                            f"{package} was detected as a salt-extension because of it's keywords"
+                        )
+                if salt_extension:
+                    package_info_cache.write_bytes(msgpack.packb(data))
+                else:
+                    if package_info_cache.exists():
+                        package_info_cache.unlink()
+            except Exception:
+                progress.write(traceback.format_exc())
+                progress.write(f"Data:\n{pprint.pformat(data)}")
     finally:
         progress.update()
 
@@ -335,7 +346,7 @@ async def main(options):
     )
     with progress:
         with get_index_info(progress, options) as index_info:
-            concurrency = 1500
+            concurrency = 500
             limiter = trio.CapacityLimiter(concurrency)
             with trio.move_on_after(timeout) as cancel_scope:
                 limits = httpx.Limits(max_keepalive_connections=5, max_connections=concurrency)
