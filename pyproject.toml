@@ -27,11 +27,9 @@ dependencies = [
     "trio",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
-    "pip-tools",
-    "ipdb",
-    "pre-commit",
+    "prek",
 ]
 
 [tool.setuptools.packages.find]
