@@ -82,6 +82,7 @@ def get_index_info(progress, options):
                 )
                 for data in index_info["packages"].values():
                     data.pop("serial", None)
+                    data["refresh"] = True
             else:
                 sha256sum = ret.stdout.split()[0].strip()
                 stored_sha256sum = index_info.get("sha256sum")
@@ -92,6 +93,7 @@ def get_index_info(progress, options):
                     )
                     for data in index_info["packages"].values():
                         data.pop("serial", None)
+                        data["refresh"] = True
     else:
         index_info = {"packages": {}}
 
@@ -185,8 +187,7 @@ async def download_pypi_simple_index(session, index_info, limiter, progress, opt
                         }
                 if old_packages:
                     progress.write(
-                        f"Removing the following old packages from "
-                        f"cache: {', '.join(old_packages)}"
+                        f"Removing the following old packages from cache: {', '.join(old_packages)}"
                     )
                     for package in old_packages:
                         package_list.pop(package)
@@ -268,7 +269,7 @@ async def download_package_info(session, package, package_info, limiter, progres
         set_progress_description(progress, f"Querying info for {package}")
         try:
             req = await session.get(url, headers=headers, timeout=15)
-        except (httpx.TimeoutException, trio.ClosedResourceError) as exc:
+        except (httpx.HTTPError, trio.ClosedResourceError) as exc:
             progress.write(f"Failed to query info for {package}: {exc}")
             return
 
@@ -294,6 +295,8 @@ async def download_package_info(session, package, package_info, limiter, progres
             progress.write(
                 f"Package {package} has been yanked. Reason: {data['info'].get('yanked_reason')}"
             )
+            if package_info_cache.exists():
+                package_info_cache.unlink()
             return
         try:
             salt_extension = False
@@ -347,7 +350,7 @@ async def main(options):
                         session, index_info, limiter, progress, options
                     )
         if cancel_scope.cancelled_caught:
-            progress.write(f"The script timed out after {timeout} minutes")
+            progress.write(f"The script timed out after {timeout} seconds")
             return 1
         progress.write("Detected Salt Extensions:")
         for path in sorted(PACKAGE_INFO_CACHE.glob("*.msgpack")):
