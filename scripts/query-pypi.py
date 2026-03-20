@@ -235,7 +235,7 @@ async def collect_packages_information(session, index_info, limiter, progress, o
                     )
                 index_info["packages"][package].pop("refresh", None)
                 refreshed += 1
-                if options.batch and refreshed > options.batch:
+                if options.batch and refreshed >= options.batch:
                     break
     finally:
         # Store the known extensions hash into state to trigger a cache hit/miss/update
